@@ -12,7 +12,8 @@
 #   prior written permission.
 
 
-import py_dss_interface
+# import py_dss_interface
+import opendssdirect as dss  # Substituído
 import numpy as np
 import pandas as pd
 import cmath
@@ -47,11 +48,13 @@ class OpenDSSInterface(DxToolInterfacesABC):
         """
 
         self.dss_file = dss_file
-        self.dss = py_dss_interface.DSS()
+        # self.dss = py_dss_interface.DSS()
+        self.dss = dss  # opendssdirect é um módulo, não uma classe
         self.der_bus_list = []
 
         if dss_file is not None:
-            self.dss.text(f"Compile [{self.dss_file}]")
+            # self.dss.text(f"Compile [{self.dss_file}]")
+            self.dss.Text.Command(f"Compile [{self.dss_file}]")  # Alterado
 
         self._DERs = None
         self._VRs = {}
@@ -59,15 +62,22 @@ class OpenDSSInterface(DxToolInterfacesABC):
 
     def cmd(self, cmd_line: Union[str, List[str]]) -> Union[str, List[str]]:
         """
-        Compile dss command from user
+        Compile dss command from user. 
+        Este método é agora usado principalmente para comandos de CONSULTA (ex: '? ...')
+        que retornam um valor de string.
 
         :param cmd_line: OpenDSS COM command in string or list of strings
         """
 
         if type(cmd_line) is list:
-            return [self.dss.text(cmd) for cmd in cmd_line]
+            results = []
+            for cmd in cmd_line:
+                self.dss.Text.Command(cmd)
+                results.append(self.dss.Text.Result())
+            return results
         elif type(cmd_line) is str:
-            return self.dss.text(cmd_line)
+            self.dss.Text.Command(cmd_line)
+            return self.dss.Text.Result()
         else:
             raise ValueError("OpenDSS Initializing cmd_list is not valid")
 
@@ -84,7 +94,8 @@ class OpenDSSInterface(DxToolInterfacesABC):
             raise ValueError(
                 f"DER_sim_type should be 'pvsystem', 'generator', 'isource', 'vsource'. Now it is {DER_sim_type}")
 
-        self.dss.text('calcv')
+        # self.dss.text('calcv')
+        self.dss.Text.Command('calcv')  # Alterado
 
         self.__init_buses()
         self.__init_lines()
@@ -93,7 +104,7 @@ class OpenDSSInterface(DxToolInterfacesABC):
         self.__init_vr()
 
         if self.DER_sim_type == 'pvsystem':
-            self.__init_PVSystems()
+            self.__init_PVsystems()
         if self.DER_sim_type == 'isource':
             self.__init_isources()
         if self.DER_sim_type == 'vsource':
@@ -107,10 +118,13 @@ class OpenDSSInterface(DxToolInterfacesABC):
         Read the information of all the buses into this class, stored in self.buses
         """
 
-        nodenames = list(self.dss.circuit.nodes_names)
+        # nodenames = list(self.dss.circuit.nodes_names)
+        nodenames = list(self.dss.Circuit.AllNodeNames())  # Alterado
         buses = []
-        for busname in self.dss.circuit.buses_names:
-            self.dss.circuit.set_active_bus(busname)
+        # for busname in self.dss.circuit.buses_names:
+        for busname in self.dss.Circuit.AllBusNames():  # Alterado
+            # self.dss.circuit.set_active_bus(busname)
+            self.dss.Circuit.SetActiveBus(busname)  # Alterado
             try:
                 idx_A = nodenames.index('{}.{}'.format(busname, 1))
             except ValueError:
@@ -125,11 +139,16 @@ class OpenDSSInterface(DxToolInterfacesABC):
                 idx_C = -1
             buses.append({
                 'name': busname,
-                'kVBaseLL': self.dss.bus.kv_base * np.sqrt(3),
-                'nPhases': self.dss.bus.num_nodes,
-                'distance': self.dss.bus.distance * 0.621371,  # km to miles
-                'x': self.dss.bus.x,
-                'y': self.dss.bus.y,
+                # 'kVBaseLL': self.dss.bus.kv_base * np.sqrt(3),
+                'kVBaseLL': self.dss.Bus.kVBase() * np.sqrt(3),  # Alterado
+                # 'nPhases': self.dss.bus.num_nodes,
+                'nPhases': self.dss.Bus.NumNodes(),  # Alterado
+                # 'distance': self.dss.bus.distance * 0.621371,  # km to miles
+                'distance': self.dss.Bus.Distance() * 0.621371,  # Alterado
+                # 'x': self.dss.bus.x,
+                'x': self.dss.Bus.X(),  # Alterado
+                # 'y': self.dss.bus.y,
+                'y': self.dss.Bus.Y(),  # Alterado
                 'nodeIndex_A': idx_A,
                 'nodeIndex_B': idx_B,
                 'nodeIndex_C': idx_C,
@@ -154,22 +173,32 @@ class OpenDSSInterface(DxToolInterfacesABC):
         """
         Read the information of all the lines into this class, stored in self.lines
         """
-        linenames = list(self.dss.lines.names)
+        # linenames = list(self.dss.lines.names)
+        linenames = list(self.dss.Lines.AllNames())  # Alterado
         lines = []
         for linename in linenames:
-            self.dss.lines.name = linename
-            bus1 = self.dss.lines.bus1#.split('.')[0]
-            bus2 = self.dss.lines.bus2#.split('.')[0]
-            self.dss.circuit.set_active_bus(bus1)
+            # self.dss.lines.name = linename
+            self.dss.Lines.Name(linename)  # Alterado (setter)
+            # bus1 = self.dss.lines.bus1
+            bus1 = self.dss.Lines.Bus1()  # Alterado
+            # bus2 = self.dss.lines.bus2
+            bus2 = self.dss.Lines.Bus2()  # Alterado
+            # self.dss.circuit.set_active_bus(bus1)
+            self.dss.Circuit.SetActiveBus(bus1)  # Alterado
             lines.append({
                 'name': linename,
                 'bus1': bus1,
                 'bus2': bus2,
-                'kVBaseLN': self.dss.bus.kv_base,
-                'nPhases': self.dss.lines.phases,
-                'length': self.dss.lines.length,
-                'normamps': self.dss.lines.norm_amps,
-                'emergamps': self.dss.lines.emerg_amps,
+                # 'kVBaseLN': self.dss.bus.kv_base,
+                'kVBaseLN': self.dss.Bus.kVBase(),  # Alterado
+                # 'nPhases': self.dss.lines.phases,
+                'nPhases': self.dss.Lines.Phases(),  # Alterado
+                # 'length': self.dss.lines.length,
+                'length': self.dss.Lines.Length(),  # Alterado
+                # 'normamps': self.dss.lines.norm_amps,
+                'normamps': self.dss.Lines.NormAmps(),  # Alterado
+                # 'emergamps': self.dss.lines.emerg_amps,
+                'emergamps': self.dss.Lines.EmergAmps(),  # Alterado
                 'flowI_A': 0 + 1j * 0,
                 'flowI_B': 0 + 1j * 0,
                 'flowI_C': 0 + 1j * 0,
@@ -189,15 +218,22 @@ class OpenDSSInterface(DxToolInterfacesABC):
         Read the information of all the loads into this class, stored in self.loads
         """
 
-        loadnames = self.dss.loads.names
-        if loadnames[0].upper() == 'NONE':
+        # loadnames = self.dss.loads.names
+        loadnames = self.dss.Loads.AllNames()  # Alterado
+        if not loadnames: # opendssdirect retorna lista vazia
+            loadnames = []
+        elif loadnames[0].upper() == 'NONE':
             loadnames = []
         loads = []
         for loadname in loadnames:
-            self.dss.loads.name = loadname
-            kw = self.dss.loads.kw
-            bus = self.dss.text(f'? load.{loadname}.bus1')
-            phases = int(self.dss.text(f'? load.{loadname}.phases'))
+            # self.dss.loads.name = loadname
+            self.dss.Loads.Name(loadname)  # Alterado
+            # kw = self.dss.loads.kw
+            kw = self.dss.Loads.kW()  # Alterado
+            # bus = self.dss.text(f'? load.{loadname}.bus1') # Bug original, deveria ser self.cmd
+            bus = self.cmd(f'? load.{loadname}.bus1') # Corrigido
+            # phases = int(self.dss.text(f'? load.{loadname}.phases')) # Bug original
+            phases = int(self.cmd(f'? load.{loadname}.phases')) # Corrigido
 
             this_type = 'load'
             loads.append({
@@ -217,18 +253,27 @@ class OpenDSSInterface(DxToolInterfacesABC):
         """
         Read the information of all the generators into this class, stored in self.generators
         """
-        gennames = list(self.dss.generators.names)
-        if gennames[0].upper() == 'NONE':
+        # gennames = list(self.dss.generators.names)
+        gennames = list(self.dss.Generators.AllNames())  # Alterado
+        if not gennames: # opendssdirect retorna lista vazia
+            gennames = []
+        elif gennames[0].upper() == 'NONE':
             gennames = []
         self.gen_bus_list = []
         gens = []
         for genname in gennames:
-            self.dss.generators.name = genname
-            kw = self.dss.generators.kw
-            kvar = self.dss.generators.kvar
-            kVA = self.dss.generators.kva
-            bus = self.dss.text(f'? generator.{genname}.bus1')
-            kV = float(self.dss.text(f'? generator.{genname}.kv'))
+            # self.dss.generators.name = genname
+            self.dss.Generators.Name(genname)  # Alterado
+            # kw = self.dss.generators.kw
+            kw = self.dss.Generators.kW()  # Alterado
+            # kvar = self.dss.generators.kvar
+            kvar = self.dss.Generators.kvar()  # Alterado
+            # kVA = self.dss.generators.kva
+            kVA = self.dss.Generators.kva()  # Alterado
+            # bus = self.dss.text(f'? generator.{genname}.bus1') # Bug original
+            bus = self.cmd(f'? generator.{genname}.bus1') # Corrigido
+            # kV = float(self.dss.text(f'? generator.{genname}.kv')) # Bug original
+            kV = float(self.cmd(f'? generator.{genname}.kv')) # Corrigido
             this_type = 'generator'
             gens.append({
                 'name': genname,
@@ -243,22 +288,32 @@ class OpenDSSInterface(DxToolInterfacesABC):
 
         self.generators = pd.DataFrame(gens)
 
-    def __init_PVSystems(self):
+    def __init_PVsystems(self):
         """
-        Read the information of all the PVSystems into this class, stored in self.DERs
+        Read the information of all the PVsystems into this class, stored in self.DERs
         """
-        PVnames = list(self.dss.pvsystems.names)
-        if PVnames[0].upper() == 'NONE':
+        # PVnames = list(self.dss.pvsystems.names)
+        PVnames = list(self.dss.PVsystems.AllNames())  # Alterado
+        if not PVnames: # opendssdirect retorna lista vazia
+            PVnames = []
+        elif PVnames[0].upper() == 'NONE':
             PVnames = []
         PVs = []
         for PVname in PVnames:
-            self.dss.pvsystems.name = PVname
-            kw = self.dss.pvsystems.pmpp
-            kvar = self.dss.pvsystems.kvar
-            kVA = self.dss.pvsystems.kva
-            bus = self.dss.text(f'? PVSystem.{PVname}.bus1')
-            kvarabs = float(self.dss.text(f'? PVSystem.{PVname}.kvarmaxabs'))
-            kV = float(self.dss.text(f'? PVSystem.{PVname}.kv'))
+            # self.dss.pvsystems.name = PVname
+            self.dss.PVsystems.Name(PVname)  # Alterado
+            # kw = self.dss.pvsystems.pmpp
+            kw = self.dss.PVsystems.Pmpp()  # Alterado
+            # kvar = self.dss.pvsystems.kvar
+            kvar = self.dss.PVsystems.kvar()  # Alterado
+            # kVA = self.dss.pvsystems.kva
+            kVA = self.dss.PVsystems.kVARated()  # Alterado
+            # bus = self.dss.text(f'? PVSystem.{PVname}.bus1') # Bug original
+            bus = self.cmd(f'? PVSystem.{PVname}.bus1') # Corrigido
+            # kvarabs = float(self.dss.text(f'? PVSystem.{PVname}.kvarmaxabs')) # Bug original
+            kvarabs = float(self.cmd(f'? PVSystem.{PVname}.kvarmaxabs')) # Corrigido
+            # kV = float(self.dss.text(f'? PVSystem.{PVname}.kv')) # Bug original
+            kV = float(self.cmd(f'? PVSystem.{PVname}.kv')) # Corrigido
             this_type = 'pvsystem'
             PVs.append({
                 'name': PVname,
@@ -278,22 +333,31 @@ class OpenDSSInterface(DxToolInterfacesABC):
         """
         Read the information of all the isources into this class, stored in self.DERs
         """
-        PVnames = list(self.dss.isources.names)
+        # PVnames = list(self.dss.isources.names)
+        PVnames = list(self.dss.ISources.AllNames())  # Alterado
         PVs = []
         # PVnames = [PVname.split('_')[0].replace(' ', '') for PVname in PVnames]
         PVnames = self.__combine_elements(PVnames)
 
         for PVname in PVnames:
             if '_a' in PVname or '_b' in PVname or '_c' in PVname:
-                self.dss.isources.name = f'{PVname}'
-                bus = self.dss.text(f'? isource.{PVname}.bus1')
-                self.dss.circuit.set_active_bus(bus)
-                kV = self.dss.bus.kv_base * 1.7320508075688
+                # self.dss.isources.name = f'{PVname}'
+                self.dss.ISources.Name(f'{PVname}')  # Alterado
+                # bus = self.dss.text(f'? isource.{PVname}.bus1') # Bug original
+                bus = self.cmd(f'? isource.{PVname}.bus1') # Corrigido
+                # self.dss.circuit.set_active_bus(bus)
+                self.dss.Circuit.SetActiveBus(bus)  # Alterado
+                # kV = self.dss.bus.kv_base * 1.7320508075688
+                kV = self.dss.Bus.kVBase() * 1.7320508075688  # Alterado
             else:
-                self.dss.isources.name = f'{PVname}_a'
-                bus = self.dss.text(f'? isource.{PVname}_a.bus1')
-                self.dss.circuit.set_active_bus(bus)
-                kV = self.dss.bus.kv_base * 1.7320508075688
+                # self.dss.isources.name = f'{PVname}_a'
+                self.dss.ISources.Name(f'{PVname}_a')  # Alterado
+                # bus = self.dss.text(f'? isource.{PVname}_a.bus1') # Bug original
+                bus = self.cmd(f'? isource.{PVname}_a.bus1') # Corrigido
+                # self.dss.circuit.set_active_bus(bus)
+                self.dss.Circuit.SetActiveBus(bus)  # Alterado
+                # kV = self.dss.bus.kv_base * 1.7320508075688
+                kV = self.dss.Bus.kVBase() * 1.7320508075688  # Alterado
                 bus = bus.split('.')[0].replace(' ', '')+'.1.2.3'
 
             this_type = 'isource'
@@ -316,26 +380,39 @@ class OpenDSSInterface(DxToolInterfacesABC):
         """
         Read the information of all the vsources into this class, stored in self.DERs
         """
-        PVnames = list(self.dss.vsources.names)[1:]  # First one is substation
+        # PVnames = list(self.dss.vsources.names)[1:]  # First one is substation
+        PVnames = list(self.dss.Vsources.AllNames())[1:]  # Alterado
         PVs = []
         # PVnames = [PVname.split('_')[0].replace(' ', '') for PVname in PVnames]
         PVnames = self.__combine_elements(PVnames)
 
         for PVname in PVnames:
             if '_a' in PVname or '_b' in PVname or '_c' in PVname:
-                self.dss.vsources.name = f'{PVname}'
-                bus = self.dss.text(f'? vsource.{PVname}.bus1')
-                self.dss.circuit.set_active_bus(bus)
-                kV = self.dss.bus.kv_base * 1.7320508075688
-                kw = float(self.dss.text(f'? vsource.{PVname}.baseMVA')) * 1000
-                kVA = float(self.dss.text(f'? vsource.{PVname}.baseMVA')) * 1000
+                # self.dss.vsources.name = f'{PVname}'
+                self.dss.Vsources.Name(f'{PVname}')  # Alterado
+                # bus = self.dss.text(f'? vsource.{PVname}.bus1') # Bug original
+                bus = self.cmd(f'? vsource.{PVname}.bus1') # Corrigido
+                # self.dss.circuit.set_active_bus(bus)
+                self.dss.Circuit.SetActiveBus(bus)  # Alterado
+                # kV = self.dss.bus.kv_base * 1.7320508075688
+                kV = self.dss.Bus.kVBase() * 1.7320508075688  # Alterado
+                # kw = float(self.dss.text(f'? vsource.{PVname}.baseMVA')) * 1000 # Bug original
+                kw = float(self.cmd(f'? vsource.{PVname}.baseMVA')) * 1000 # Corrigido
+                # kVA = float(self.dss.text(f'? vsource.{PVname}.baseMVA')) * 1000 # Bug original
+                kVA = float(self.cmd(f'? vsource.{PVname}.baseMVA')) * 1000 # Corrigido
             else:
-                self.dss.vsources.name = f'{PVname}_a'
-                bus = self.dss.text(f'? vsource.{PVname}_a.bus1')
-                self.dss.circuit.set_active_bus(bus)
-                kV = self.dss.bus.kv_base * 1.7320508075688
-                kw = float(self.dss.text(f'? vsource.{PVname}_a.baseMVA')) * 1000
-                kVA = float(self.dss.text(f'? vsource.{PVname}_a.baseMVA')) * 1000
+                # self.dss.vsources.name = f'{PVname}_a'
+                self.dss.Vsources.Name(f'{PVname}_a')  # Alterado
+                # bus = self.dss.text(f'? vsource.{PVname}_a.bus1') # Bug original
+                bus = self.cmd(f'? vsource.{PVname}_a.bus1') # Corrigido
+                # self.dss.circuit.set_active_bus(bus)
+                self.dss.Circuit.SetActiveBus(bus)  # Alterado
+                # kV = self.dss.bus.kv_base * 1.7320508075688
+                kV = self.dss.Bus.kVBase() * 1.7320508075688  # Alterado
+                # kw = float(self.dss.text(f'? vsource.{PVname}_a.baseMVA')) * 1000 # Bug original
+                kw = float(self.cmd(f'? vsource.{PVname}_a.baseMVA')) * 1000 # Corrigido
+                # kVA = float(self.dss.text(f'? vsource.{PVname}_a.baseMVA')) * 1000 # Bug original
+                kVA = float(self.cmd(f'? vsource.{PVname}_a.baseMVA')) * 1000 # Corrigido
                 bus = bus.split('.')[0].replace(' ', '')+'.1.2.3'
 
 
@@ -363,42 +440,49 @@ class OpenDSSInterface(DxToolInterfacesABC):
         """
 
         if self.DER_sim_type == 'pvsystem':
-            self.dss.text(f'PVSystem.{name}.kVA = {der_obj.der_file.NP_VA_MAX / 1000}')
-            self.dss.text(f'PVSystem.{name}.Pmpp = {der_obj.der_file.NP_P_MAX / 1000}')
-            self.dss.text(f'PVSystem.{name}.kvarmax = {der_obj.der_file.NP_Q_MAX_ABS / 1000}')
-            self.dss.text(f'PVSystem.{name}.kvarmaxabs = {der_obj.der_file.NP_Q_MAX_INJ / 1000}')
+            # self.dss.text(f'PVSystem.{name}.kVA = {der_obj.der_file.NP_VA_MAX / 1000}') # Bug original
+            self.dss.Text.Command(f'PVSystem.{name}.kVA = {der_obj.der_file.NP_VA_MAX / 1000}') # Corrigido
+            self.dss.Text.Command(f'PVSystem.{name}.Pmpp = {der_obj.der_file.NP_P_MAX / 1000}')
+            self.dss.Text.Command(f'PVSystem.{name}.kvarmax = {der_obj.der_file.NP_Q_MAX_ABS / 1000}')
+            self.dss.Text.Command(f'PVSystem.{name}.kvarmaxabs = {der_obj.der_file.NP_Q_MAX_INJ / 1000}')
 
         if self.DER_sim_type == 'isource':
             pass
 
         if self.DER_sim_type == 'vsource':
-            self.dss.vsources.name = f'{name}_a'
+            # self.dss.vsources.name = f'{name}_a'
+            self.dss.Vsources.Name(f'{name}_a')  # Alterado
             kVA = der_obj.der_file.NP_VA_MAX / 1000
-            bus = self.dss.text(f'? vsource.{name}_a.bus1')
-            self.dss.circuit.set_active_bus(bus)
+            # bus = self.dss.text(f'? vsource.{name}_a.bus1') # Bug original
+            bus = self.cmd(f'? vsource.{name}_a.bus1') # Corrigido
+            # self.dss.circuit.set_active_bus(bus)
+            self.dss.Circuit.SetActiveBus(bus)  # Alterado
 
-            kV = self.dss.bus.kv_base * 1.7320508075688
+            # kV = self.dss.bus.kv_base * 1.7320508075688
+            kV = self.dss.Bus.kVBase() * 1.7320508075688  # Alterado
             R = der_obj.der_file.NP_RESISTANCE * kV * kV / kVA * 1000
             X = der_obj.der_file.NP_REACTANCE * kV * kV / kVA * 1000
-            self.dss.text(f'vsource.{name}_a.R0 = {R}')
-            self.dss.text(f'vsource.{name}_a.R1 = {R}')
-            self.dss.text(f'vsource.{name}_a.X0 = {X}')
-            self.dss.text(f'vsource.{name}_a.X1 = {X}')
-            self.dss.text(f'vsource.{name}_b.R0 = {R}')
-            self.dss.text(f'vsource.{name}_b.R1 = {R}')
-            self.dss.text(f'vsource.{name}_b.X0 = {X}')
-            self.dss.text(f'vsource.{name}_b.X1 = {X}')
-            self.dss.text(f'vsource.{name}_c.R0 = {R}')
-            self.dss.text(f'vsource.{name}_c.R1 = {R}')
-            self.dss.text(f'vsource.{name}_c.X0 = {X}')
-            self.dss.text(f'vsource.{name}_c.X1 = {X}')
-            self.dss.text(f'vsource.{name}_c.baseMVA = {kVA / 1000}')
+            # self.dss.text(f'vsource.{name}_a.R0 = {R}') # Bug original
+            self.dss.Text.Command(f'vsource.{name}_a.R0 = {R}') # Corrigido
+            self.dss.Text.Command(f'vsource.{name}_a.R1 = {R}')
+            self.dss.Text.Command(f'vsource.{name}_a.X0 = {X}')
+            self.dss.Text.Command(f'vsource.{name}_a.X1 = {X}')
+            self.dss.Text.Command(f'vsource.{name}_b.R0 = {R}')
+            self.dss.Text.Command(f'vsource.{name}_b.R1 = {R}')
+            self.dss.Text.Command(f'vsource.{name}_b.X0 = {X}')
+            self.dss.Text.Command(f'vsource.{name}_b.X1 = {X}')
+            self.dss.Text.Command(f'vsource.{name}_c.R0 = {R}')
+            self.dss.Text.Command(f'vsource.{name}_c.R1 = {R}')
+            self.dss.Text.Command(f'vsource.{name}_c.X0 = {X}')
+            self.dss.Text.Command(f'vsource.{name}_c.X1 = {X}')
+            self.dss.Text.Command(f'vsource.{name}_c.baseMVA = {kVA / 1000}')
 
         if self.DER_sim_type == 'generator':
-            self.dss.text(f'generator.{name}.kVA = {der_obj.der_file.NP_VA_MAX / 1000}')
-            self.dss.text(f'generator.{name}.kW = {der_obj.der_file.NP_P_MAX / 1000}')
-            self.dss.text(f'generator.{name}.maxkvar = {der_obj.der_file.NP_Q_MAX_ABS / 1000}')
-            self.dss.text(f'generator.{name}.minkvar = {-der_obj.der_file.NP_Q_MAX_INJ / 1000}')
+            # self.dss.text(f'generator.{name}.kVA = {der_obj.der_file.NP_VA_MAX / 1000}') # Bug original
+            self.dss.Text.Command(f'generator.{name}.kVA = {der_obj.der_file.NP_VA_MAX / 1000}') # Corrigido
+            self.dss.Text.Command(f'generator.{name}.kW = {der_obj.der_file.NP_P_MAX / 1000}')
+            self.dss.Text.Command(f'generator.{name}.maxkvar = {der_obj.der_file.NP_Q_MAX_ABS / 1000}')
+            self.dss.Text.Command(f'generator.{name}.minkvar = {-der_obj.der_file.NP_Q_MAX_INJ / 1000}')
 
     def load_scaling(self, mult=1.0):
         """
@@ -410,8 +494,10 @@ class OpenDSSInterface(DxToolInterfacesABC):
         for name in self.loads.index:
             if self.loads.loc[name, 'type'] == 'load':
                 new_kw = self.loads.loc[name, 'kw'] * mult
-                self.dss.loads.name = name
-                self.dss.loads.kw = float(new_kw)
+                # self.dss.loads.name = name
+                self.dss.Loads.Name(name)  # Alterado
+                # self.dss.loads.kw = float(new_kw)
+                self.dss.Loads.kW(float(new_kw))  # Alterado
 
     def update_der_output_powers(self, der_list=None, p_list=None, q_list=None):
         """
@@ -439,20 +525,30 @@ class OpenDSSInterface(DxToolInterfacesABC):
 
             name = der_obj.name
             if self.DER_sim_type == 'pvsystem':
-                self.cmd(f'{self.DER_sim_type}.{name}.Pmpp={P_gen}')
-                self.cmd(f'{self.DER_sim_type}.{name}.kvar={Q_gen}')
+                # self.cmd(f'{self.DER_sim_type}.{name}.Pmpp={P_gen}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}.Pmpp={P_gen}') # Alterado
+                # self.cmd(f'{self.DER_sim_type}.{name}.kvar={Q_gen}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}.kvar={Q_gen}') # Alterado
 
             if self.DER_sim_type == 'generator':
-                self.cmd(f'{self.DER_sim_type}.{name}.kW={P_gen}')
-                self.cmd(f'{self.DER_sim_type}.{name}.kvar={Q_gen}')
+                # self.cmd(f'{self.DER_sim_type}.{name}.kW={P_gen}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}.kW={P_gen}') # Alterado
+                # self.cmd(f'{self.DER_sim_type}.{name}.kvar={Q_gen}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}.kvar={Q_gen}') # Alterado
 
             if self.DER_sim_type == 'isource':
-                self.dss.circuit.set_active_element(f'isource.{name}_a')
-                i_a = self.dss.cktelement.currents
-                self.dss.circuit.set_active_element(f'isource.{name}_b')
-                i_b = self.dss.cktelement.currents
-                self.dss.circuit.set_active_element(f'isource.{name}_c')
-                i_c = self.dss.cktelement.currents
+                # self.dss.circuit.set_active_element(f'isource.{name}_a')
+                self.dss.Circuit.SetActiveElement(f'isource.{name}_a') # Alterado
+                # i_a = self.dss.cktelement.currents
+                i_a = self.dss.CktElement.Currents() # Alterado
+                # self.dss.circuit.set_active_element(f'isource.{name}_b')
+                self.dss.Circuit.SetActiveElement(f'isource.{name}_b') # Alterado
+                # i_b = self.dss.cktelement.currents
+                i_b = self.dss.CktElement.Currents() # Alterado
+                # self.dss.circuit.set_active_element(f'isource.{name}_c')
+                self.dss.Circuit.SetActiveElement(f'isource.{name}_c') # Alterado
+                # i_c = self.dss.cktelement.currents
+                i_c = self.dss.CktElement.Currents() # Alterado
                 i = [i_a[2] + 1j * i_a[3],
                      i_b[2] + 1j * i_b[3],
                      i_c[2] + 1j * i_c[3]]
@@ -462,20 +558,27 @@ class OpenDSSInterface(DxToolInterfacesABC):
 
                 (ia, ib, ic), (theta_a, theta_b, theta_c) = der_obj.get_der_output(output='I_A')
 
-                self.cmd(f'{self.DER_sim_type}.{name}_a.amps={ia}')
-                self.cmd(f'{self.DER_sim_type}.{name}_b.amps={ib}')
-                self.cmd(f'{self.DER_sim_type}.{name}_c.amps={ic}')
-                self.cmd(f'{self.DER_sim_type}.{name}_a.angle={theta_a * 57.29577951308232}')
-                self.cmd(f'{self.DER_sim_type}.{name}_b.angle={theta_b * 57.29577951308232}')
-                self.cmd(f'{self.DER_sim_type}.{name}_c.angle={theta_c * 57.29577951308232}')
+                # self.cmd(f'{self.DER_sim_type}.{name}_a.amps={ia}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_a.amps={ia}') # Alterado
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_b.amps={ib}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_c.amps={ic}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_a.angle={theta_a * 57.29577951308232}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_b.angle={theta_b * 57.29577951308232}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_c.angle={theta_c * 57.29577951308232}')
 
             if self.DER_sim_type == 'vsource':
-                self.dss.circuit.set_active_element(f'vsource.{name}_a')
-                i_a = self.dss.cktelement.currents
-                self.dss.circuit.set_active_element(f'vsource.{name}_b')
-                i_b = self.dss.cktelement.currents
-                self.dss.circuit.set_active_element(f'vsource.{name}_c')
-                i_c = self.dss.cktelement.currents
+                # self.dss.circuit.set_active_element(f'vsource.{name}_a')
+                self.dss.Circuit.SetActiveElement(f'vsource.{name}_a') # Alterado
+                # i_a = self.dss.cktelement.currents
+                i_a = self.dss.CktElement.Currents() # Alterado
+                # self.dss.circuit.set_active_element(f'vsource.{name}_b')
+                self.dss.Circuit.SetActiveElement(f'vsource.{name}_b') # Alterado
+                # i_b = self.dss.cktelement.currents
+                i_b = self.dss.CktElement.Currents() # Alterado
+                # self.dss.circuit.set_active_element(f'vsource.{name}_c')
+                self.dss.Circuit.SetActiveElement(f'vsource.{name}_c') # Alterado
+                # i_c = self.dss.cktelement.currents
+                i_c = self.dss.CktElement.Currents() # Alterado
                 i = [i_a[2] + 1j * i_a[3],
                      i_b[2] + 1j * i_b[3],
                      i_c[2] + 1j * i_c[3]]
@@ -485,18 +588,20 @@ class OpenDSSInterface(DxToolInterfacesABC):
 
                 (va, vb, vc), (theta_a, theta_b, theta_c) = der_obj.get_der_output(output='V_pu')
 
-                self.cmd(f'{self.DER_sim_type}.{name}_a.pu={va * 0.577350}')
-                self.cmd(f'{self.DER_sim_type}.{name}_b.pu={vb * 0.577350}')
-                self.cmd(f'{self.DER_sim_type}.{name}_c.pu={vc * 0.577350}')
-                self.cmd(f'{self.DER_sim_type}.{name}_a.angle={theta_a * 57.29577951308232}')
-                self.cmd(f'{self.DER_sim_type}.{name}_b.angle={theta_b * 57.29577951308232}')
-                self.cmd(f'{self.DER_sim_type}.{name}_c.angle={theta_c * 57.29577951308232}')
+                # self.cmd(f'{self.DER_sim_type}.{name}_a.pu={va * 0.577350}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_a.pu={va * 0.577350}') # Alterado
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_b.pu={vb * 0.577350}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_c.pu={vc * 0.577350}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_a.angle={theta_a * 57.29577951308232}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_b.angle={theta_b * 57.29577951308232}')
+                self.dss.Text.Command(f'{self.DER_sim_type}.{name}_c.angle={theta_c * 57.29577951308232}')
 
     def solve_power_flow(self) -> None:
         """
         Solve circuit power flow using dss engine
         """
-        self.dss.text("solve")
+        # self.dss.text("solve")
+        self.dss.Text.Command("solve")  # Alterado
 
     def read_sys_voltage(self) -> pd.DataFrame:
         """
@@ -505,15 +610,18 @@ class OpenDSSInterface(DxToolInterfacesABC):
         :return: bus voltages in DataFrame, indexed by bus names. Also accessed by .buses
         """
 
-        nodenames = self.dss.circuit.nodes_names
-        temp = self.dss.circuit.buses_volts
+        # nodenames = self.dss.circuit.nodes_names
+        nodenames = self.dss.Circuit.AllNodeNames()  # Alterado
+        # temp = self.dss.circuit.buses_volts
+        temp = self.dss.Circuit.AllBusVolts()  # Alterado
         nodevolts = [temp[2 * ii] + 1j * temp[2 * ii + 1] for ii in range(len(nodenames))]
         self.nodevolts = pd.DataFrame(nodevolts, index=nodenames, columns=['volts'])
 
         nodeangles = [cmath.phase(temp[2 * ii] + 1j * temp[2 * ii + 1]) for ii in range(len((nodenames)))]
         busnames = self.buses.index
         for phase in ['A', 'B', 'C']:
-            self.buses['Vpu_{}'.format(phase)] = np.array(self.dss.circuit.buses_vmag_pu)[
+            # self.buses['Vpu_{}'.format(phase)] = np.array(self.dss.circuit.buses_vmag_pu)[
+            self.buses['Vpu_{}'.format(phase)] = np.array(self.dss.Circuit.AllBusMagPu())[  # Alterado
                 self.buses['nodeIndex_{}'.format(phase)][busnames]]
             self.buses['Theta_{}'.format(phase)] = np.array(nodeangles)[
                 self.buses['nodeIndex_{}'.format(phase)][busnames]]
@@ -559,10 +667,12 @@ class OpenDSSInterface(DxToolInterfacesABC):
 
         linenames = self.lines.index
         for linename in linenames:
-            self.dss.circuit.set_active_element('line.{}'.format(linename))
+            # self.dss.circuit.set_active_element('line.{}'.format(linename))
+            self.dss.Circuit.SetActiveElement('line.{}'.format(linename))  # Alterado
             if self.cmd(f'? line.{linename}.enabled').upper() == 'TRUE':
                 ii = 0
-                phases_num = self.dss.cktelement.bus_names[0].split('.')[1:]
+                # phases_num = self.dss.cktelement.bus_names[0].split('.')[1:]
+                phases_num = self.dss.CktElement.BusNames()[0].split('.')[1:]  # Alterado
                 phases = [chr(int(i) + 64) for i in phases_num]
                 if phases == []:
                     phases = ['A', 'B', 'C']
@@ -570,8 +680,10 @@ class OpenDSSInterface(DxToolInterfacesABC):
                 for phase in phases:
                     if ('_' + phase.lower() in linename) or ('_' + phase in linename) or (
                             not (('_a' in linename) or ('_b' in linename) or ('_c' in linename))):
-                        v = self.dss.cktelement.voltages[2 * ii] + 1j * self.dss.cktelement.voltages[2 * ii + 1]
-                        s = self.dss.cktelement.powers[2 * ii] + 1j * self.dss.cktelement.powers[2 * ii + 1]
+                        # v = self.dss.cktelement.voltages[2 * ii] + 1j * self.dss.cktelement.voltages[2 * ii + 1]
+                        v = self.dss.CktElement.Voltages()[2 * ii] + 1j * self.dss.CktElement.Voltages()[2 * ii + 1]  # Alterado
+                        # s = self.dss.cktelement.powers[2 * ii] + 1j * self.dss.cktelement.powers[2 * ii + 1]
+                        s = self.dss.CktElement.Powers()[2 * ii] + 1j * self.dss.CktElement.Powers()[2 * ii + 1]  # Alterado
 
                         # complex current in amps (bus1 --> bus2)
                         if abs(v) < 0.00001:
@@ -586,15 +698,19 @@ class OpenDSSInterface(DxToolInterfacesABC):
         """
         Set dss circuit substation bus voltage
         """
-        self.dss.vsources.pu = v_pu
+        # self.dss.vsources.pu = v_pu
+        self.dss.Vsources.PU(v_pu)  # Alterado
 
     def __init_vr(self):
         """
         Read the information of all the voltage regulators into this class, stored in self._VRs
         """
         # self.vrStates = []
-        VR_names = list(self.dss.regcontrols.names)
-        if VR_names[0].upper() == 'NONE':
+        # VR_names = list(self.dss.regcontrols.names)
+        VR_names = list(self.dss.RegControls.AllNames())  # Alterado
+        if not VR_names: # opendssdirect retorna lista vazia
+            VR_names = []
+        elif VR_names[0].upper() == 'NONE':
             VR_names = []
         # RegulatorByPhase type
         for vr_name in VR_names:
@@ -631,13 +747,15 @@ class OpenDSSInterface(DxToolInterfacesABC):
         Enable voltage regulator controls in OpenDSS. This is usually for steady-state analysis
         or establish the initial condition for a dynamic analysis.
         """
-        self.cmd('set controlmode=STATIC')
+        # self.cmd('set controlmode=STATIC')
+        self.dss.Text.Command('set controlmode=STATIC')  # Alterado
 
     def disable_control(self):
         """
         Disable voltage regulator controls in circuit simulation tool solver. This is usually for dynamic simulation
         """
-        self.cmd('set controlmode=OFF')
+        # self.cmd('set controlmode=OFF')
+        self.dss.Text.Command('set controlmode=OFF')  # Alterado
 
     def read_vr(self):
         """
@@ -652,7 +770,8 @@ class OpenDSSInterface(DxToolInterfacesABC):
         Write voltage regulator tap information from self._VR into OpenDSS circuit simulation.
         """
         for vrname in self._VRs.keys():
-            self.cmd('edit regcontrol.{} tapNum={}'.format(vrname, self._VRs[vrname]['tapPos']))
+            # self.cmd('edit regcontrol.{} tapNum={}'.format(vrname, self._VRs[vrname]['tapPos']))
+            self.dss.Text.Command('edit regcontrol.{} tapNum={}'.format(vrname, self._VRs[vrname]['tapPos'])) # Alterado
 
     def read_vr_v_i(self, vrname):
         """
